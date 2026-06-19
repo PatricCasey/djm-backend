@@ -1,5 +1,6 @@
 const Call = require('../models/Call');
 const User = require('../models/User');
+const mongoose = require('mongoose');
 
 async function listCalls(req, res) {
     try {
@@ -14,7 +15,7 @@ async function listCalls(req, res) {
 
 async function createCall(req, res) {
     try {
-        const { profile, date, time, step, recordingLink, recruiterNameOrGmail, type, duration, status, caller } = req.body;
+        const { profile, date, time, step, recordingLink, recruiterNameOrGmail, type, duration, status, note, caller } = req.body;
         const isAdmin = req.userRole === 'admin';
 
         if (profile && !isAdmin) {
@@ -25,9 +26,13 @@ async function createCall(req, res) {
             }
         }
 
+        const resolvedCaller = (isAdmin && caller) ? caller
+            : mongoose.Types.ObjectId.isValid(req.userId) ? req.userId
+            : undefined;
+
         const call = new Call({
-            caller: (isAdmin && caller) ? caller : req.userId,
-            profile, date, time, step, recordingLink, recruiterNameOrGmail, type, duration, status
+            ...(resolvedCaller ? { caller: resolvedCaller } : {}),
+            profile, date, time, step, recordingLink, recruiterNameOrGmail, type, duration, status, note
         });
         await call.save();
 
@@ -57,12 +62,15 @@ async function updateCall(req, res) {
             }
         }
 
-        const allowedFields = ['profile', 'date', 'time', 'step', 'recordingLink', 'recruiterNameOrGmail', 'type', 'duration', 'status'];
+        const allowedFields = ['profile', 'date', 'time', 'step', 'recordingLink', 'recruiterNameOrGmail', 'type', 'duration', 'status', 'note'];
         const updates = {};
         for (const field of allowedFields) {
             if (req.body[field] !== undefined) {
                 updates[field] = req.body[field];
             }
+        }
+        if (isAdmin && req.body.caller !== undefined) {
+            updates.caller = req.body.caller || undefined;
         }
 
         const updated = await Call.findByIdAndUpdate(req.params.callId, updates, { new: true })

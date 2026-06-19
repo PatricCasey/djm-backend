@@ -22,8 +22,13 @@ async function login(req, res) {
     try {
         // Check admin credentials from env
         if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
-            const token = jwt.sign({ userId: 'admin', role: 'admin' }, JWT_SECRET, { expiresIn: '1d' });
-            return res.json({ token, user: { id: 'admin', email: ADMIN_EMAIL, role: 'admin' } });
+            let adminUser = await User.findOne({ email: ADMIN_EMAIL });
+            if (!adminUser) {
+                const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 10);
+                adminUser = await User.create({ email: ADMIN_EMAIL, password: hashedPassword, role: 'admin', approved: true });
+            }
+            const token = jwt.sign({ userId: adminUser._id, role: 'admin' }, JWT_SECRET, { expiresIn: '1d' });
+            return res.json({ token, user: { id: adminUser._id, email: ADMIN_EMAIL, role: 'admin' } });
         }
 
         const user = await User.findOne({ email });

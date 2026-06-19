@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const CallSchema = new mongoose.Schema({
-    caller: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    caller: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     profile: { type: mongoose.Schema.Types.ObjectId, ref: 'Profile' },
     date: Date,
     time: String,
@@ -10,7 +10,8 @@ const CallSchema = new mongoose.Schema({
     recruiterNameOrGmail: String,
     type: { type: String, enum: ['phone', 'video'] },
     duration: Number,
-    status: { type: String, enum: ['completed', 'not-completed', 'rescheduled'] },
+    status: { type: String, enum: ['completed', 'not-completed', 'rescheduled'], default: 'not-completed' },
+    note: String,
     createdAt: { type: Date, default: Date.now }
 });
 
