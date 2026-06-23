@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 async function listCalls(req, res) {
     try {
         const calls = await Call.find({ caller: req.userId })
+            .populate('caller', 'email')
             .populate('profile', 'name email')
             .sort({ date: -1, createdAt: -1 });
         res.json(calls);

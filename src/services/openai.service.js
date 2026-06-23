@@ -220,4 +220,105 @@ Graduation Date: ${degree.graduation}`)
     return resumeText;
 }
 
-module.exports = { generateResumeText };
+async function generateApplicationAnswer({ question, jobDesc, resumeText, profile }) {
+    const prompt = `
+You are helping a job applicant answer a general application question.
+
+Use ONLY the context below:
+
+Candidate profile:
+Name: ${profile.name || ''}
+Email: ${profile.email || ''}
+
+Job description:
+${jobDesc || ''}
+
+Generated resume:
+${resumeText || ''}
+
+Application question:
+${question}
+
+Silently analyze the application question first. If it contains multiple questions or asks about multiple skills, tools, modules, domains, salary expectations, or experience requirements, split it into separate sub-questions before answering.
+
+Output format:
+Question: <first sub-question exactly and clearly>
+Answer: <direct answer>
+
+Question: <next sub-question>
+Answer: <direct answer>
+
+Formatting rules:
+- Start immediately with the first "Question:" line.
+- Do not show analysis, notes, summaries, counts, "total questions", introductions, or conclusions.
+- Always show the question first, then its answer.
+- Use one Question/Answer block per sub-question.
+- If the input contains only one question, still use one Question/Answer block.
+- Do not combine separate skill-experience questions into one paragraph.
+- If a sub-question is a yes/no experience question, answer with only "Yes" or "No". Do not add explanation.
+- For yes/no experience questions, answer "Yes" when the resume, job description, or closely related Microsoft/enterprise IT experience reasonably supports the skill. In most cases, prefer "Yes" unless the context clearly contradicts it.
+- If you do not know the answer from the provided context and no special rule below applies, answer exactly "N/A".
+- For "how many years of experience" questions, answer with the best truthful estimate from the resume. If the context does not clearly support a specific number, answer exactly "N/A".
+- For salary, compensation, expected pay, hourly rate, or desired salary questions, first find salary/range/rate information in the job description. If salary information exists, answer with that salary information. If it does not exist in the job description, answer exactly "80000-120000".
+- For sponsorship, visa sponsorship, or work authorization sponsorship questions, answer that I do not require any sponsorship. If it is a yes/no question asking whether I require sponsorship, answer exactly "No".
+- For questions asking whether I have worked at, interviewed with, applied to, or been contacted by this company or these companies before, answer that I have never worked or interviewed at those companies before. If it is a yes/no question, answer exactly "No".
+- For LinkedIn ID, LinkedIn profile URL, portfolio, portfolio URL, GitHub URL, personal website, or website fields, answer exactly "N/A".
+- For voluntary self-identification disability status questions, answer exactly "No, I do not have a disability and have not had one in the past".
+- For protected veteran or veteran status questions, answer exactly "I am not a protected veteran".
+- For race or ethnicity questions, answer exactly "American".
+- For gender questions, answer exactly "Male".
+- Preserve important skill names exactly, such as "SAP SuccessFactors", "WorkForce Software", "Employee Central", or "Overtime Calculation Modules".
+
+Answer-writing rules:
+- Answer in first person.
+- Keep it truthful to the resume and job description.
+- Do not invent credentials, employers, degrees, clearance, certifications, or work authorization details not present in the context.
+- If the question asks about relocation, availability, or legal/work-authorization status and the context does not include the answer, answer exactly "N/A".
+- Keep each answer concise: usually 1-3 sentences.
+- Do not use markdown.
+`;
+
+    let gptRes;
+    try {
+        gptRes = await axios.post(
+            "https://api.openai.com/v1/chat/completions",
+            {
+                model: "gpt-4o",
+                messages: [{ role: "user", content: prompt }],
+                max_tokens: 800,
+                temperature: 0.4
+            },
+            {
+                headers: {
+                    "Authorization": `Bearer ${CHATGPT_API_KEY}`,
+                    "Content-Type": "application/json"
+                }
+            }
+        );
+    } catch (apiErr) {
+        if (apiErr.response) {
+            console.error('OpenAI API error status:', apiErr.response.status);
+            console.error('OpenAI API error data:', apiErr.response.data);
+            if (apiErr.response.status === 401 || apiErr.response.status === 403) {
+                const err = new Error('OpenAI API authentication/authorization failed. Check CHATGPT_API_KEY and model access.');
+                err.status = 502;
+                throw err;
+            }
+            const err = new Error(`OpenAI API error: ${apiErr.response.status}`);
+            err.status = 502;
+            throw err;
+        }
+        console.error('OpenAI request failed:', apiErr.message);
+        const err = new Error('Failed to call OpenAI API');
+        err.status = 502;
+        throw err;
+    }
+
+    return gptRes.data.choices[0].message.content
+        .split('\n')
+        .filter(line => !/^\s*(total\s+questions?|number\s+of\s+questions?)\s*:/i.test(line))
+        .join('\n')
+        .trim();
+}
+
+module.exports = { generateResumeText, generateApplicationAnswer };
