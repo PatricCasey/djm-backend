@@ -16,7 +16,11 @@ async function listCalls(req, res) {
 
 async function createCall(req, res) {
     try {
-        const { profile, date, time, step, recordingLink, recruiterNameOrGmail, type, duration, status, note, caller } = req.body;
+        const {
+            profile, date, time, step, recordingLink, meetingLink,
+            recruiterNameOrGmail, companyName, jobDescription, resume,
+            type, duration, status, note, caller
+        } = req.body;
         const isAdmin = req.userRole === 'admin';
 
         if (profile && !isAdmin) {
@@ -33,7 +37,9 @@ async function createCall(req, res) {
 
         const call = new Call({
             ...(resolvedCaller ? { caller: resolvedCaller } : {}),
-            profile, date, time, step, recordingLink, recruiterNameOrGmail, type, duration, status, note
+            profile, date, time, step, recordingLink, meetingLink,
+            recruiterNameOrGmail, companyName, jobDescription, resume,
+            type, duration, status, note
         });
         await call.save();
 
@@ -63,7 +69,11 @@ async function updateCall(req, res) {
             }
         }
 
-        const allowedFields = ['profile', 'date', 'time', 'step', 'recordingLink', 'recruiterNameOrGmail', 'type', 'duration', 'status', 'note'];
+        const allowedFields = [
+            'profile', 'date', 'time', 'step', 'recordingLink', 'meetingLink',
+            'recruiterNameOrGmail', 'companyName', 'jobDescription', 'resume',
+            'type', 'duration', 'status', 'note'
+        ];
         const updates = {};
         for (const field of allowedFields) {
             if (req.body[field] !== undefined) {
