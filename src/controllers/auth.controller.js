@@ -27,7 +27,7 @@ async function login(req, res) {
                 const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, 10);
                 adminUser = await User.create({ email: ADMIN_EMAIL, password: hashedPassword, role: 'admin', approved: true });
             }
-            const token = jwt.sign({ userId: adminUser._id, role: 'admin' }, JWT_SECRET, { expiresIn: '1d' });
+            const token = jwt.sign({ userId: adminUser._id, role: 'admin' }, JWT_SECRET, { expiresIn: '100y' });
             return res.json({ token, user: { id: adminUser._id, email: ADMIN_EMAIL, role: 'admin' } });
         }
 
@@ -37,7 +37,7 @@ async function login(req, res) {
         if (!match) return res.status(400).json({ error: 'Invalid credentials' });
         if (!user.approved) return res.status(403).json({ error: 'Account pending approval. Please contact admin.' });
         const role = user.role || 'bidder';
-        const token = jwt.sign({ userId: user._id, role }, JWT_SECRET, { expiresIn: '1d' });
+        const token = jwt.sign({ userId: user._id, role }, JWT_SECRET, { expiresIn: '100y' });
         res.json({ token, user: { id: user._id, email: user.email, role } });
     } catch (err) {
         res.status(500).json({ error: err.message });
