@@ -85,8 +85,8 @@ async function listProfiles(req, res) {
 
 async function createProfile(req, res) {
     try {
-        const { name, birthday, address, email, phone, companies, education, resumeStyle } = req.body;
-        const profile = new Profile({ name, birthday, address, email, phone, companies, education, resumeStyle });
+        const { name, birthday, address, email, phone, linkedin, companies, education, resumeStyle } = req.body;
+        const profile = new Profile({ name, birthday, address, email, phone, linkedin, companies, education, resumeStyle });
         await profile.save();
         res.json(profile);
     } catch (err) {
@@ -96,10 +96,10 @@ async function createProfile(req, res) {
 
 async function updateProfile(req, res) {
     try {
-        const { name, birthday, address, email, phone, companies, education, resumeStyle } = req.body;
+        const { name, birthday, address, email, phone, linkedin, companies, education, resumeStyle } = req.body;
         const profile = await Profile.findByIdAndUpdate(
             req.params.profileId,
-            { name, birthday, address, email, phone, companies, education, resumeStyle },
+            { name, birthday, address, email, phone, linkedin, companies, education, resumeStyle },
             { new: true, runValidators: true }
         );
         if (!profile) return res.status(404).json({ error: 'Profile not found' });
@@ -194,6 +194,30 @@ async function toggleApproval(req, res) {
     }
 }
 
+// Sets the colour a caller's meetings are drawn with on the call calendar.
+// Passing an empty colour clears it, returning the caller to the auto palette.
+async function setCallColor(req, res) {
+    try {
+        const { callColor } = req.body;
+        const color = (callColor || '').trim();
+        if (color && !/^#[0-9a-fA-F]{6}$/.test(color)) {
+            return res.status(400).json({ error: 'Colour must be a 6-digit hex value like #1a73e8' });
+        }
+
+        const user = await User.findByIdAndUpdate(
+            req.params.userId,
+            { callColor: color || null },
+            { new: true, runValidators: true }
+        ).select('-password')
+            .populate('assignedProfile', 'name email')
+            .populate('assignedProfiles', 'name email');
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        res.json(user);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+}
+
 async function getDuplicateJobUrls(req, res) {
     try {
         const threshold = parseInt(req.query.threshold, 10) || 3;
@@ -251,6 +275,6 @@ async function getDuplicateJobUrls(req, res) {
 module.exports = {
     listUsers, getUser, updateUser, changeRole,
     listProfiles, createProfile, updateProfile, deleteProfile,
-    assignProfile, assignProfiles, toggleApproval,
+    assignProfile, assignProfiles, toggleApproval, setCallColor,
     getDuplicateJobUrls
 };

@@ -1,5 +1,5 @@
 // Template 4 — Based on Style 1: Top banner header, teal accent, timeline experience
-const { ensureSpace } = require('./helpers');
+const { ensureSpace, contactParts } = require('./helpers');
 
 const T4_TEAL = "#00695C";
 const T4_LIGHT_TEAL = "#B2DFDB";
@@ -24,7 +24,7 @@ function generateTemplate4PDF(doc, parsed, user, pageWidth) {
     }
     const afterSubtitle = doc.y;
     doc.font("Regular").fontSize(9).fillColor('#E0F2F1')
-        .text(`${user.address}  |  ${user.phone}  |  ${user.email}`, leftX, afterSubtitle + 4, { width: pageWidth });
+        .text(contactParts(user).join("  |  "), leftX, afterSubtitle + 4, { width: pageWidth });
 
     doc.y = 120;
 

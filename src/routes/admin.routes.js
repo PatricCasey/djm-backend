@@ -5,7 +5,7 @@ const requireRole = require('../middleware/requireRole');
 const {
     listUsers, getUser, updateUser, changeRole,
     listProfiles, createProfile, updateProfile, deleteProfile,
-    assignProfile, assignProfiles, toggleApproval,
+    assignProfile, assignProfiles, toggleApproval, setCallColor,
     getDuplicateJobUrls
 } = require('../controllers/admin.controller');
 
@@ -19,6 +19,7 @@ router.put('/users/:userId/role', changeRole);
 router.put('/users/:userId/assign-profile', assignProfile);
 router.put('/users/:callerId/assign-profiles', assignProfiles);
 router.put('/users/:userId/toggle-approval', toggleApproval);
+router.put('/users/:userId/call-color', setCallColor);
 
 // Checking
 router.get('/duplicate-urls', getDuplicateJobUrls);

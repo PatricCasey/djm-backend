@@ -9,6 +9,27 @@ const FONT_SIZE_CONTACT = 9;
 const FONT_SIZE_SECTION = 11;
 const FONT_SIZE_BODY = 10;
 
+// Normalize a stored LinkedIn value for display.
+// Accepts a full URL, a bare "linkedin.com/in/foo", or just a username.
+// Returns "" when the profile has no LinkedIn (the field is optional).
+function formatLinkedIn(value) {
+    if (!value) return "";
+    let s = String(value).trim();
+    if (!s) return "";
+    s = s.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/+$/, "");
+    if (!/linkedin\.com/i.test(s)) {
+        s = `linkedin.com/in/${s.replace(/^\/+/, "")}`;
+    }
+    return s;
+}
+
+// Contact pieces for the header line, in order, with empty values dropped
+// so a profile without a LinkedIn renders exactly as before.
+function contactParts(user) {
+    return [user.address, user.phone, user.email, formatLinkedIn(user.linkedin)]
+        .filter(part => part && String(part).trim());
+}
+
 function drawSectionRule(doc) {
     const y = doc.y;
     doc.strokeColor(MAROON)
@@ -76,6 +97,8 @@ module.exports = {
     FONT_SIZE_CONTACT,
     FONT_SIZE_SECTION,
     FONT_SIZE_BODY,
+    formatLinkedIn,
+    contactParts,
     drawSectionRule,
     renderSectionHeader,
     renderSplitLine,

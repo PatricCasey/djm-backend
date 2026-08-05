@@ -1,5 +1,5 @@
 // Template 7 — Based on Template 2, Warm Burgundy Professional
-const { ensureSpace } = require('./helpers');
+const { ensureSpace, contactParts } = require('./helpers');
 
 const T7_BURGUNDY = "#8B1A1A";
 const T7_BLACK = "#2E2E2E";
@@ -16,7 +16,7 @@ function generateTemplate7PDF(doc, parsed, user, pageWidth) {
     }
     doc.moveDown(0.15);
     doc.font("Regular").fontSize(9).fillColor(T7_GRAY)
-        .text(`${user.address}  |  ${user.phone}  |  ${user.email}`, { align: "center" });
+        .text(contactParts(user).join("  |  "), { align: "center" });
     doc.moveDown(0.5);
 
     // Summary

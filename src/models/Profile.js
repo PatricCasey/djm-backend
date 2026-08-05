@@ -12,6 +12,7 @@ const ProfileSchema = new mongoose.Schema({
     address: String,
     email: String,
     phone: String,
+    linkedin: String, // optional — omitted from the resume when empty
     companies: [CompanySchema],
     education: {
         bachelor: {

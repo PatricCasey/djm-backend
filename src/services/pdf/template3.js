@@ -1,4 +1,6 @@
 // ===== Template 3 Style Constants (Enhancv-style two-column) =====
+const { formatLinkedIn } = require('./helpers');
+
 const T3_BLUE = "#2079C7";
 const T3_BLACK = "#2D2D2D";
 const T3_GRAY = "#888888";
@@ -28,6 +30,16 @@ function t3LocationIcon(doc, x, y, color) {
     doc.moveTo(x + 1.5, y + 3.5).lineTo(x + 4, y + 9.5).lineTo(x + 6.5, y + 3.5).fill();
     doc.fillColor('white');
     doc.circle(x + 4, y + 3, 1.1).fill();
+    doc.restore();
+}
+
+// Note: this one draws text, so it leaves the font changed.
+// Callers must re-apply their own font/size/color afterwards.
+function t3LinkedInIcon(doc, x, y, color) {
+    doc.save().fillColor(color);
+    doc.roundedRect(x + 0.5, y + 0.5, 9, 9, 1.5).fill();
+    doc.fillColor('white').font("Bold").fontSize(6);
+    doc.text("in", x + 2.3, y + 2.2, { lineBreak: false });
     doc.restore();
 }
 
@@ -117,8 +129,24 @@ function generateTemplate3PDF(doc, parsed, user, pageWidth) {
     cx += 13;
     const addressStr = user.address || "";
     doc.text(addressStr, cx, contactTextY, { lineBreak: false });
+    cx += doc.widthOfString(addressStr) + 16;
 
-    y = contactY + 16;
+    // LinkedIn is optional — wrap it onto a second line if it doesn't fit
+    let contactRows = 1;
+    const linkedinStr = formatLinkedIn(user.linkedin);
+    if (linkedinStr) {
+        let liY = contactTextY;
+        if (cx + 13 + doc.widthOfString(linkedinStr) > leftMargin + usableW) {
+            contactRows = 2;
+            liY = contactTextY + 12;
+            cx = leftMargin;
+        }
+        t3LinkedInIcon(doc, cx, liY + 1.5, T3_GRAY);
+        doc.font("Regular").fontSize(9).fillColor(T3_GRAY);
+        doc.text(linkedinStr, cx + 13, liY, { lineBreak: false });
+    }
+
+    y = contactY + 16 + (contactRows - 1) * 12;
     const contentStartY = y;
 
     // ===== RIGHT COLUMN: SUMMARY + SKILLS (page 1 only) =====

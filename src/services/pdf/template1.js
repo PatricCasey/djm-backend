@@ -7,6 +7,7 @@ const {
     FONT_SIZE_CONTACT,
     FONT_SIZE_SECTION,
     FONT_SIZE_BODY,
+    contactParts,
     renderSectionHeader,
     renderSplitLine,
     ensureSpace,
@@ -31,7 +32,7 @@ function generateTemplate1PDF(doc, parsed, user, pageWidth) {
     doc.font("Regular")
         .fontSize(FONT_SIZE_CONTACT)
         .fillColor(GRAY)
-        .text(`${user.address}  |  ${user.phone}  |  ${user.email}`, { align: "left" });
+        .text(contactParts(user).join("  |  "), { align: "left" });
 
     // ===== SUMMARY =====
     if (parsed.summary.length > 0) {

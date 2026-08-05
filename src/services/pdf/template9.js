@@ -1,4 +1,6 @@
 // Template 9 — Based on Template 3, Two-column with Purple Modern
+const { formatLinkedIn } = require('./helpers');
+
 const T9_PRIMARY = "#4A148C";
 const T9_ACCENT = "#7C4DFF";
 const T9_BLACK = "#1A1A1A";
@@ -28,6 +30,16 @@ function t9LocationIcon(doc, x, y, color) {
     doc.moveTo(x + 1.5, y + 3.5).lineTo(x + 4, y + 9.5).lineTo(x + 6.5, y + 3.5).fill();
     doc.fillColor('white');
     doc.circle(x + 4, y + 3, 1.1).fill();
+    doc.restore();
+}
+
+// Note: this one draws text, so it leaves the font changed.
+// Callers must re-apply their own font/size/color afterwards.
+function t9LinkedInIcon(doc, x, y, color) {
+    doc.save().fillColor(color);
+    doc.roundedRect(x + 0.5, y + 0.5, 9, 9, 1.5).fill();
+    doc.fillColor('white').font("Bold").fontSize(6);
+    doc.text("in", x + 2.3, y + 2.2, { lineBreak: false });
     doc.restore();
 }
 
@@ -104,9 +116,26 @@ function generateTemplate9PDF(doc, parsed, user, pageWidth) {
 
     t9LocationIcon(doc, cx, contactY + 1.5, T9_ACCENT);
     cx += 13;
-    doc.text(user.address || "", cx, contactY, { lineBreak: false });
+    const addressStr = user.address || "";
+    doc.text(addressStr, cx, contactY, { lineBreak: false });
+    cx += doc.widthOfString(addressStr) + 16;
 
-    y = contactY + 18;
+    // LinkedIn is optional — wrap it onto a second line if it doesn't fit
+    let contactRows = 1;
+    const linkedinStr = formatLinkedIn(user.linkedin);
+    if (linkedinStr) {
+        let liY = contactY;
+        if (cx + 13 + doc.widthOfString(linkedinStr) > leftMargin + usableW) {
+            contactRows = 2;
+            liY = contactY + 12;
+            cx = leftMargin;
+        }
+        t9LinkedInIcon(doc, cx, liY + 1.5, T9_ACCENT);
+        doc.font("Regular").fontSize(9).fillColor(T9_GRAY);
+        doc.text(linkedinStr, cx + 13, liY, { lineBreak: false });
+    }
+
+    y = contactY + 18 + (contactRows - 1) * 12;
     const contentStartY = y;
 
     // RIGHT COLUMN: Summary + Skills

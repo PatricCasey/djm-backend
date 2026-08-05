@@ -1,5 +1,5 @@
 // Template 5 — Based on Style 1: Centered elegant, navy with gold, boxed sections
-const { ensureSpace } = require('./helpers');
+const { ensureSpace, contactParts } = require('./helpers');
 
 const T5_NAVY = "#1B2A4A";
 const T5_GOLD = "#B8860B";
@@ -29,7 +29,7 @@ function generateTemplate5PDF(doc, parsed, user, pageWidth) {
     doc.y = r1y + 10;
 
     doc.font("Regular").fontSize(9).fillColor(T5_GRAY)
-        .text(`${user.address}  \u2022  ${user.phone}  \u2022  ${user.email}`, { align: "center" });
+        .text(contactParts(user).join("  \u2022  "), { align: "center" });
     doc.moveDown(0.5);
 
     // Section header helper — centered with gold diamond ornaments

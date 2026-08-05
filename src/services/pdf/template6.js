@@ -1,5 +1,5 @@
 // Template 6 — Based on Style 2: Left-aligned modern, green with gray sidebar stripe
-const { ensureSpace } = require('./helpers');
+const { ensureSpace, contactParts } = require('./helpers');
 
 const T6_GREEN = "#2E7D32";
 const T6_DARK = "#1B5E20";
@@ -29,7 +29,7 @@ function generateTemplate6PDF(doc, parsed, user, pageWidth) {
     }
     doc.moveDown(0.15);
     doc.font("Regular").fontSize(9).fillColor(T6_GRAY)
-        .text(`${user.address}  \u00B7  ${user.phone}  \u00B7  ${user.email}`, { align: "left" });
+        .text(contactParts(user).join("  \u00B7  "), { align: "left" });
     doc.moveDown(0.5);
 
     // Section header — green text with underline

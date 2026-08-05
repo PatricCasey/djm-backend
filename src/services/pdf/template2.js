@@ -1,4 +1,4 @@
-const { ensureSpace } = require('./helpers');
+const { ensureSpace, contactParts } = require('./helpers');
 
 // ===== Template 2 Style Constants =====
 const T2_BLUE = "#5B7BD5";
@@ -26,7 +26,7 @@ function generateTemplate2PDF(doc, parsed, user, pageWidth) {
     doc.font("Regular")
         .fontSize(9)
         .fillColor(T2_GRAY)
-        .text(`${user.address}  \u00B7  ${user.phone}  \u00B7  ${user.email}`, { align: "left" });
+        .text(contactParts(user).join("  \u00B7  "), { align: "left" });
 
     doc.moveDown(0.5);
 

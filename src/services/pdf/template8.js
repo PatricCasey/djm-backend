@@ -1,4 +1,6 @@
 // Template 8 — Based on Template 3, Two-column with left sidebar (Dark Slate)
+const { formatLinkedIn } = require('./helpers');
+
 const T8_PRIMARY = "#37474F";
 const T8_ACCENT = "#FF6F00";
 const T8_BLACK = "#212121";
@@ -57,6 +59,7 @@ function generateTemplate8PDF(doc, parsed, user, pageWidth) {
         { icon: "\u2706", text: user.phone || "" },
         { icon: "\u2709", text: user.email || "" },
         { icon: "\u2302", text: user.address || "" },
+        { icon: "in", text: formatLinkedIn(user.linkedin) },
     ];
     contactItems.forEach(item => {
         if (!item.text) return;
