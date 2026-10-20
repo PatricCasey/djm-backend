@@ -20,6 +20,23 @@ function isConnectionSetupError(err) {
     return ['ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND', 'ENETUNREACH'].includes(err.code);
 }
 
+// 429 rate limits and 5xx errors are temporary on OpenAI's side and safe to retry.
+// An exhausted quota/billing limit also returns 429 but will not recover by waiting.
+function isTransientApiError(err) {
+    const status = err.response && err.response.status;
+    if (status === 429) {
+        const code = err.response.data && err.response.data.error && err.response.data.error.code;
+        return code !== 'insufficient_quota';
+    }
+    return status >= 500;
+}
+
+function retryDelayMs(err, attempt) {
+    const retryAfter = Number(err.response && err.response.headers && err.response.headers['retry-after']);
+    if (retryAfter > 0) return Math.min(retryAfter * 1000, 20000);
+    return 2000 * attempt;
+}
+
 function openaiRequest(method, path, data, timeout) {
     return axios({
         method,
@@ -33,14 +50,15 @@ function openaiRequest(method, path, data, timeout) {
     });
 }
 
-async function withConnectionRetry(fn, isRetryable = isConnectionSetupError) {
+async function withRetry(fn, isRetryable) {
     for (let attempt = 1; ; attempt++) {
         try {
             return await fn();
-        } catch (connErr) {
-            if (attempt >= 3 || !isRetryable(connErr)) throw connErr;
-            console.warn(`OpenAI connection failed (attempt ${attempt}), retrying:`, connErr.message);
-            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        } catch (reqErr) {
+            if (attempt >= 4 || !isRetryable(reqErr)) throw reqErr;
+            const status = reqErr.response ? reqErr.response.status : reqErr.message;
+            console.warn(`OpenAI request failed (attempt ${attempt}, ${status}), retrying`);
+            await new Promise(resolve => setTimeout(resolve, retryDelayMs(reqErr, attempt)));
         }
     }
 }
@@ -57,6 +75,9 @@ function toServiceError(apiErr) {
         console.error('OpenAI API error data:', apiErr.response.data);
         if (apiErr.response.status === 401 || apiErr.response.status === 403) {
             return serviceError('OpenAI API authentication/authorization failed. Check CHATGPT_API_KEY and model access.');
+        }
+        if (apiErr.response.status === 429 && !isTransientApiError(apiErr)) {
+            return serviceError('OpenAI quota exceeded. Check the billing/usage limits on the OpenAI account.');
         }
         return serviceError(`OpenAI API error: ${apiErr.response.status}`);
     }
@@ -75,7 +96,10 @@ async function blockingChatCompletion(prompt, { maxTokens, temperature, model })
 
     let gptRes;
     try {
-        gptRes = await withConnectionRetry(() => openaiRequest('post', '/chat/completions', body));
+        gptRes = await withRetry(
+            () => openaiRequest('post', '/chat/completions', body),
+            err => isConnectionSetupError(err) || isTransientApiError(err)
+        );
     } catch (apiErr) {
         throw toServiceError(apiErr);
     }
@@ -93,18 +117,18 @@ async function blockingChatCompletion(prompt, { maxTokens, temperature, model })
 // ("socket hang up") on some networks. Background mode keeps every request short: create the
 // job, then poll until it finishes. A failed poll is simply retried on the next tick.
 async function backgroundResponse(prompt, { maxReasoningTokens, model }) {
-    // Creating a job takes ~1s. Any network failure is retried, even if the request may have
-    // reached OpenAI: a rare duplicate job costs far less than a failed resume.
+    // Creating a job takes ~1s. Any network failure or temporary API error is retried, even if
+    // the request may have reached OpenAI: a rare duplicate job costs far less than a failed resume.
     let job;
     try {
-        job = (await withConnectionRetry(() => openaiRequest('post', '/responses', {
+        job = (await withRetry(() => openaiRequest('post', '/responses', {
             model,
             input: prompt,
             reasoning: { effort: OPENAI_REASONING_EFFORT },
             max_output_tokens: maxReasoningTokens,
             background: true,
             store: true
-        }, 30000), err => !err.response)).data;
+        }, 30000), err => !err.response || isTransientApiError(err))).data;
     } catch (apiErr) {
         throw toServiceError(apiErr);
     }
@@ -119,8 +143,9 @@ async function backgroundResponse(prompt, { maxReasoningTokens, model }) {
         try {
             job = (await openaiRequest('get', `/responses/${job.id}`, undefined, 20000)).data;
         } catch (pollErr) {
-            if (pollErr.response) throw toServiceError(pollErr);
-            console.warn('OpenAI poll failed, retrying:', pollErr.message);
+            if (pollErr.response && !isTransientApiError(pollErr)) throw toServiceError(pollErr);
+            console.warn('OpenAI poll failed, retrying:', pollErr.response ? pollErr.response.status : pollErr.message);
+            if (pollErr.response) await new Promise(resolve => setTimeout(resolve, retryDelayMs(pollErr, 1)));
         }
     }
 
