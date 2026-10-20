@@ -1,5 +1,154 @@
 const axios = require('axios');
-const { CHATGPT_API_KEY } = require('../config');
+const { CHATGPT_API_KEY, OPENAI_MODEL, OPENAI_REASONING_EFFORT } = require('../config');
+
+const OPENAI_URL = "https://api.openai.com/v1";
+const POLL_INTERVAL_MS = 2000;
+const BACKGROUND_DEADLINE_MS = 5 * 60 * 1000;
+
+// gpt-4o / gpt-3.5 are non-reasoning models. Newer ones (gpt-6-luna, gpt-5+, o-series) reason
+// before answering, reject max_tokens and custom temperature, and count hidden reasoning
+// tokens against the output token limit.
+function isReasoningModel(model) {
+    return !/^gpt-(3\.5|4)/.test(model);
+}
+
+// The connection never reached OpenAI, so retrying cannot double-charge or duplicate work.
+// Drops after the request was sent (e.g. "socket hang up" mid-generation) are not retried.
+function isConnectionSetupError(err) {
+    if (err.response) return false;
+    if (/before secure TLS connection was established/.test(err.message)) return true;
+    return ['ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND', 'ENETUNREACH'].includes(err.code);
+}
+
+function openaiRequest(method, path, data, timeout) {
+    return axios({
+        method,
+        url: OPENAI_URL + path,
+        data,
+        timeout,
+        headers: {
+            "Authorization": `Bearer ${CHATGPT_API_KEY}`,
+            "Content-Type": "application/json"
+        }
+    });
+}
+
+async function withConnectionRetry(fn, isRetryable = isConnectionSetupError) {
+    for (let attempt = 1; ; attempt++) {
+        try {
+            return await fn();
+        } catch (connErr) {
+            if (attempt >= 3 || !isRetryable(connErr)) throw connErr;
+            console.warn(`OpenAI connection failed (attempt ${attempt}), retrying:`, connErr.message);
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        }
+    }
+}
+
+function serviceError(message) {
+    const err = new Error(message);
+    err.status = 502;
+    return err;
+}
+
+function toServiceError(apiErr) {
+    if (apiErr.response) {
+        console.error('OpenAI API error status:', apiErr.response.status);
+        console.error('OpenAI API error data:', apiErr.response.data);
+        if (apiErr.response.status === 401 || apiErr.response.status === 403) {
+            return serviceError('OpenAI API authentication/authorization failed. Check CHATGPT_API_KEY and model access.');
+        }
+        return serviceError(`OpenAI API error: ${apiErr.response.status}`);
+    }
+    console.error('OpenAI request failed:', apiErr.message);
+    return serviceError('Failed to call OpenAI API');
+}
+
+// Original gpt-4o path: one blocking Chat Completions request.
+async function blockingChatCompletion(prompt, { maxTokens, temperature, model }) {
+    const body = {
+        model,
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: maxTokens
+    };
+    if (temperature !== undefined) body.temperature = temperature;
+
+    let gptRes;
+    try {
+        gptRes = await withConnectionRetry(() => openaiRequest('post', '/chat/completions', body));
+    } catch (apiErr) {
+        throw toServiceError(apiErr);
+    }
+
+    const choice = gptRes.data.choices[0];
+    // A truncated resume would silently lose its later companies and the Education section.
+    if (choice.finish_reason === 'length' || !choice.message.content) {
+        console.error('OpenAI output truncated:', gptRes.data.usage);
+        throw serviceError('OpenAI response was cut off before completion');
+    }
+    return choice.message.content;
+}
+
+// Reasoning models can think for 30s+, and long-lived HTTP connections to OpenAI get dropped
+// ("socket hang up") on some networks. Background mode keeps every request short: create the
+// job, then poll until it finishes. A failed poll is simply retried on the next tick.
+async function backgroundResponse(prompt, { maxReasoningTokens, model }) {
+    // Creating a job takes ~1s. Any network failure is retried, even if the request may have
+    // reached OpenAI: a rare duplicate job costs far less than a failed resume.
+    let job;
+    try {
+        job = (await withConnectionRetry(() => openaiRequest('post', '/responses', {
+            model,
+            input: prompt,
+            reasoning: { effort: OPENAI_REASONING_EFFORT },
+            max_output_tokens: maxReasoningTokens,
+            background: true,
+            store: true
+        }, 30000), err => !err.response)).data;
+    } catch (apiErr) {
+        throw toServiceError(apiErr);
+    }
+
+    const deadline = Date.now() + BACKGROUND_DEADLINE_MS;
+    while (job.status === 'queued' || job.status === 'in_progress') {
+        if (Date.now() > deadline) {
+            openaiRequest('post', `/responses/${job.id}/cancel`, undefined, 15000).catch(() => {});
+            throw serviceError('OpenAI response timed out');
+        }
+        await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+        try {
+            job = (await openaiRequest('get', `/responses/${job.id}`, undefined, 20000)).data;
+        } catch (pollErr) {
+            if (pollErr.response) throw toServiceError(pollErr);
+            console.warn('OpenAI poll failed, retrying:', pollErr.message);
+        }
+    }
+
+    // A truncated resume would silently lose its later companies and the Education section.
+    if (job.status === 'incomplete') {
+        console.error('OpenAI output truncated:', job.incomplete_details, job.usage);
+        throw serviceError('OpenAI response was cut off before completion');
+    }
+    if (job.status !== 'completed') {
+        console.error(`OpenAI response ${job.status}:`, job.error);
+        throw serviceError(`OpenAI response ${job.status}`);
+    }
+
+    const content = job.output
+        .filter(item => item.type === 'message')
+        .flatMap(item => item.content)
+        .filter(part => part.type === 'output_text')
+        .map(part => part.text)
+        .join('');
+    if (!content) throw serviceError('OpenAI returned an empty response');
+    return content;
+}
+
+async function chatCompletion(prompt, { maxTokens, maxReasoningTokens, temperature, model = OPENAI_MODEL }) {
+    return isReasoningModel(model)
+        ? backgroundResponse(prompt, { maxReasoningTokens, model })
+        : blockingChatCompletion(prompt, { maxTokens, temperature, model });
+}
 
 function buildPrompt(jobDesc, companiesText, educationText) {
     return `
@@ -150,10 +299,17 @@ function buildPrompt(jobDesc, companiesText, educationText) {
         For each degree, use this EXACT structured format (one field per line):
         UNIVERSITY: University Name, City, State
         GRADUATION: Month YYYY
-        DEGREE: Full degree name (e.g., Bachelor of Science in Computer Science)
+        DEGREE: Full degree name including a field of study relevant to the job description (e.g., Bachelor of Science in Computer Science). Never write just "Bachelor of Science" or "Master's Degree" without the field.
         COURSEWORK: course1 • course2 • course3
 
         ${educationText}
+
+        FINAL CHECK — before you output, re-read your whole resume and fix anything that fails:
+        - Every Summary sentence contains at least one <<keyword>>, and every single dash (-) bullet in every company contains at least one <<keyword>>. Do not drop the <<>> markers in any section.
+        - No two bullets start with the same verb, and none starts with a banned verb.
+        - No banned buzzword appears anywhere, and there are zero percentages.
+        - Each company meets its minimum bullet count, and every company name is exactly as given.
+        - Plain text only: no markdown, no ** and no ##.
         `;
 }
 
@@ -173,43 +329,22 @@ Graduation Date: ${degree.graduation}`)
 
     const prompt = buildPrompt(jobDesc, companiesText, educationText);
 
-    let gptRes;
-    try {
-        gptRes = await axios.post(
-            "https://api.openai.com/v1/chat/completions",
-            {
-                model: "gpt-4o",
-                messages: [{ role: "user", content: prompt }],
-                max_tokens: 7000
-            },
-            {
-                headers: {
-                    "Authorization": `Bearer ${CHATGPT_API_KEY}`,
-                    "Content-Type": "application/json"
-                }
-            }
-        );
-    } catch (apiErr) {
-        if (apiErr.response) {
-            console.error('OpenAI API error status:', apiErr.response.status);
-            console.error('OpenAI API error data:', apiErr.response.data);
-            if (apiErr.response.status === 401 || apiErr.response.status === 403) {
-                const err = new Error('OpenAI API authentication/authorization failed. Check CHATGPT_API_KEY and model access.');
-                err.status = 502;
-                throw err;
-            }
-            const err = new Error(`OpenAI API error: ${apiErr.response.status}`);
+    // Reasoning models occasionally answer with a request for more candidate details instead of
+    // a resume; that text parses to an empty PDF, so retry once and then fail loudly.
+    let content;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+        content = await chatCompletion(prompt, { maxTokens: 7000, maxReasoningTokens: 32000 });
+        if (/^\s*COMPANY:/m.test(content)) break;
+        console.error(`OpenAI returned no resume (attempt ${attempt}):`, content.slice(0, 300));
+        if (attempt === 2) {
+            const err = new Error('OpenAI did not return a resume. Please try again.');
             err.status = 502;
             throw err;
         }
-        console.error('OpenAI request failed:', apiErr.message);
-        const err = new Error('Failed to call OpenAI API');
-        err.status = 502;
-        throw err;
     }
 
     // Post-process: strip any remaining percentages GPT may have included
-    const resumeText = gptRes.data.choices[0].message.content
+    const resumeText = content
         .replace(/\bby\s+\d+(\.\d+)?%/g, 'significantly')
         .replace(/\b\d+(\.\d+)?%\s*/g, '')
         .replace(/\bby\s+\d+(\.\d+)?\s*percent/gi, 'significantly')
@@ -278,43 +413,9 @@ Answer-writing rules:
 - Do not use markdown.
 `;
 
-    let gptRes;
-    try {
-        gptRes = await axios.post(
-            "https://api.openai.com/v1/chat/completions",
-            {
-                model: "gpt-4o",
-                messages: [{ role: "user", content: prompt }],
-                max_tokens: 800,
-                temperature: 0.4
-            },
-            {
-                headers: {
-                    "Authorization": `Bearer ${CHATGPT_API_KEY}`,
-                    "Content-Type": "application/json"
-                }
-            }
-        );
-    } catch (apiErr) {
-        if (apiErr.response) {
-            console.error('OpenAI API error status:', apiErr.response.status);
-            console.error('OpenAI API error data:', apiErr.response.data);
-            if (apiErr.response.status === 401 || apiErr.response.status === 403) {
-                const err = new Error('OpenAI API authentication/authorization failed. Check CHATGPT_API_KEY and model access.');
-                err.status = 502;
-                throw err;
-            }
-            const err = new Error(`OpenAI API error: ${apiErr.response.status}`);
-            err.status = 502;
-            throw err;
-        }
-        console.error('OpenAI request failed:', apiErr.message);
-        const err = new Error('Failed to call OpenAI API');
-        err.status = 502;
-        throw err;
-    }
+    const content = await chatCompletion(prompt, { maxTokens: 800, maxReasoningTokens: 8000, temperature: 0.4 });
 
-    return gptRes.data.choices[0].message.content
+    return content
         .split('\n')
         .filter(line => !/^\s*(total\s+questions?|number\s+of\s+questions?)\s*:/i.test(line))
         .join('\n')
