@@ -4,7 +4,9 @@
     "main": "index.js",
     "scripts": {
         "start": "node index.js",
-        "dev": "nodemon index.js"
+        "dev": "nodemon index.js",
+        "dev:auto": "node scripts/supervise.js",
+        "start:auto": "node scripts/supervise.js --prod"
     },
     "dependencies": {
         "axios": "^1.7.0",
