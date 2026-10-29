@@ -3,7 +3,7 @@
     "version": "1.0.0",
     "main": "index.js",
     "scripts": {
-        "start": "node index.js",
+        "start": "node scripts/supervise.js --prod",
         "dev": "nodemon index.js",
         "dev:auto": "node scripts/supervise.js",
         "start:auto": "node scripts/supervise.js --prod"
